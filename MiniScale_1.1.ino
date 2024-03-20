@@ -20,6 +20,8 @@
 
 #define   led_dot      0x7F         //LED7SEG value for a dot "."
 
+#define   COMPLETED    1
+#define   FAILED       0
 //---------------------SETUP FOR MENU----------------------
 enum MENU{
   PAGE_MEASURING_LOADCELL ,
@@ -74,7 +76,7 @@ long temp_CP_hx711_arr[TOTAL_CP];
 
 HX711 scale;
 //----------------------SETUP FOR HX711--------------------------
-
+bool __INIT_FLAG = false ;
 
 void setup() {
   Serial.begin(115200);
@@ -91,7 +93,8 @@ void setup() {
   pinMode(BUT_UP_PIN, INPUT_PULLUP);
   pinMode(BUT_DOWN_PIN, INPUT_PULLUP);
   pinMode(BUT_FUNCTION_PIN, INPUT_PULLUP); 
-  //GET DATA FROM EEPROM
+  //DATA FROM EEPROM
+  CHECK_CALIB_SETUP_DATA();
   GET_EEPROM_DATA();
 }
 
@@ -111,6 +114,7 @@ void loop() {
 void INTERRUPT() {
   static uint16_t _fps_counter = 0;
   _fps_counter++;
+  CHECK_CONNECT_HX711();
   CHECK_BUTTON_STATE();
   if((_fps_counter % 20) == 0) DISPLAY_LED();
 }
@@ -152,11 +156,15 @@ void FUNCTION_CONFIG_CALIB_POINT_VALUE() {
       CONFIGURATION_CP_VALUE(_CP_position); 
       break;
     case FUNC_HOLD:
-      DISPLAY_UPDATE("string", "base");
-      PAGE = PAGE_MEASURING_LOADCELL;
+      if(__INIT_FLAG == true) {       //INITIAL VALUE has been configured
+        DISPLAY_UPDATE("string", "base");
+        PAGE = PAGE_MEASURING_LOADCELL;
+      }
+      else if (__INIT_FLAG == false) {      //INITIAL VALUE hasn't been configured
+        DISPLAY_UPDATE("string", "----");
+      }  
       break;
   }
-  
 }
 
 void CONFIGURATION_CP_VALUE(uint8_t _CP_position) {
@@ -198,7 +206,6 @@ void CONFIGURATION_CP_VALUE(uint8_t _CP_position) {
       VERIFY_NEW_CALIB_UPDATE(_CP_position,_temp_CP_value);
       break;
     case FUNC_HOLD:
-      PAGE = PAGE_CONFIG_CALIB_POINT_VALUE;
       break;
   }
 }
@@ -439,7 +446,17 @@ char STRING_CODE(char alphabet) {
     }break;
   }
 }
-
+//----------------------CHECK CONNECT HX711---------------------------
+void CHECK_CONNECT_HX711() {
+  static uint16_t _hx711_check = 0;
+  if(digitalRead(HX711_DATA_PIN) == 0) {
+    _hx711_check++;
+    if(_hx711_check >= 3000) { 
+      DISPLAY_UPDATE("string", "eror");
+    }
+  } 
+  else _hx711_check = 0;
+}
 //--------------------HOW TO MEASURING DATA FROM LOADCELL--------------
 float alpha(uint8_t CP_number) {
   float x = temp_CP_value_arr[CP_number + 1] - temp_CP_value_arr[CP_number];
@@ -480,5 +497,29 @@ void GET_EEPROM_DATA() {
     EEPROM.get(EEPROM_BEGIN_CP_HX711 + _index * EEPROM_CP_HX711_SIZE, CP_hx711_arr[_index]);
   }
 }
+
+
+//--------------------INIT VALUE----------------------
+void CHECK_INIT_VALUE() {
+  while(CHECK_CALIB_SETUP_DATA() == FAILED) {
+    FUNCTION_CONFIG_CALIB_POINT_VALUE();
+  }
+  __INIT_FLAG = true;
+}
+
+uint8_t CHECK_CALIB_SETUP_DATA() {
+  uint8_t _counter_check =0;
+  for(uint8_t _index =0; _index < TOTAL_CP; _index++) {
+    if (EEPROM.read(EEPROM_BEGIN_CP_VALUE + _index *EEPROM_CP_VALUE_SIZE) != 0xFF) {
+      _counter_check++;
+    }
+    if (_counter_check < 2) {
+      return FAILED;
+    }
+    else return COMPLETED;
+  }
+}
+
+
 
 
