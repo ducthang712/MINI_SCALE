@@ -4,16 +4,16 @@
 #include <TimerOne.h>
 
 //------------ADRUINO LGT8F328 - PINOUT----------------
-#define   LED7SEG_DIO_PIN     2   
-#define   LED7SEG_SCLK_PIN    4
-#define   LED7SEG_RCLK_PIN    3
+#define   LED7SEG_DIO_PIN     8   
+#define   LED7SEG_SCLK_PIN    7
+#define   LED7SEG_RCLK_PIN    6
 
-#define   HX711_DATA_PIN      5   
-#define   HX711_SCK_PIN       6
+#define   HX711_DATA_PIN      10   
+#define   HX711_SCK_PIN       11
 
-#define   BUT_UP_PIN          9   
-#define   BUT_DOWN_PIN        7
-#define   BUT_FUNCTION_PIN    8
+#define   BUT_UP_PIN          4   
+#define   BUT_DOWN_PIN        3
+#define   BUT_FUNCTION_PIN    2
 
 #define   TOTAL_CP            10         //CP = "CALIB POINT"
 #define   NUMBER_OF_LED7SEG   4
@@ -22,52 +22,51 @@
 
 #define   COMPLETED    1
 #define   FAILED       0
+
+#define   FPS_rate   10
+
+//BUTTON DURATION
+#define   clicked_drt                5
+#define   pressed_drt               1000
+#define   long_pressed_drt          3000
+#define   double_long_pressed_drt   6000
+
+//EEPROM DATABASE
+#define  EEPROM_CP_VALUE_SIZE      2      //int16_t 
+#define  EEPROM_CP_HX711_SIZE      4      //long
+#define  EEPROM_BEGIN_CP_VALUE     0
+#define  EEPROM_BEGIN_CP_HX711     20
+#define  EEPROM_BEGIN_VERIFY_CP   100
 //---------------------SETUP FOR MENU----------------------
 enum MENU{
   PAGE_MEASURING_LOADCELL ,
   PAGE_CONFIG_CALIB_POINT_VALUE ,
+  PAGE_CONFIG_ACTION,
 }; enum MENU PAGE = PAGE_MEASURING_LOADCELL;
 
 enum BUTTON_STATUS {   
-  FUNC_CLICKED,
-  FUNC_HOLD,
-  UP_CLICKED,
-  UP_HOLDx1,
-  UP_HOLDx2,
-  UP_HOLDx3,
-  DOWN_CLICKED,
-  DOWN_HOLDx1,
-  DOWN_HOLDx2,
-  DOWN_HOLDx3,
-  RELEASE,
-}; enum BUTTON_STATUS STATE = RELEASE;
+  RELEASED,
+  CLICKED,
+  PRESSED,
+  LONG_PRESSED,
+  DOUBLE_LONG_PRESSED,
+}; enum BUTTON_STATUS STATE = RELEASED;
 
 enum WHICH_PRESSED {
+  BUTTON_RELEASED,
   BUTTON_UP,
   BUTTON_DOWN,
   BUTTON_FUNCTION,
-  BUTTON_RELEASED,
-}; enum WHICH_PRESSED BUT_PRESSED = BUTTON_RELEASED;
+}; enum WHICH_PRESSED BUTTON = BUTTON_RELEASED;
 
-enum HOW_PRESSED {   //ms
-  CLICKED = 300,
-  LONG_PRESS = 3000,
-  DOUBLE_LONG_PRESS = 5000,
-  TRIPPLE_LONG_PRESS = 7000,
-};
-
-enum EEPROM_DATABASE{
-  EEPROM_CP_VALUE_SIZE    =  2,      //int16_t 
-  EEPROM_CP_HX711_SIZE    =  4,      //long
-  EEPROM_BEGIN_CP_VALUE   =  0,
-  EEPROM_BEGIN_CP_HX711   =  20,
-  EEPROM_BEGIN_VERIFY_CP  = 100,
-};
 //---------------------SETUP FOR LED7SEG-----------------------
 unsigned char LED_NUMBER_CODE[10] = {0xC0, 0xF9, 0xA4, 0xB0, 0x99, 0x92, 0x82, 0xF8, 0x80, 0x90};
 uint8_t display7seg_arr[4];
 
 //-------------------SETUP FOR CALIBRATION-----------------------
+int16_t default_CP_value_arr[TOTAL_CP] = { 0, -1, -1, -1, -1, -1 , -1, -1, -1, 9999};
+long default_CP_hx711_arr[TOTAL_CP]= {-31578, 0, 0, 0, 0, 0, 0, 0, 0, 800000};
+
 int16_t CP_value_arr[TOTAL_CP];
 long CP_hx711_arr[TOTAL_CP];
 
@@ -76,7 +75,9 @@ long temp_CP_hx711_arr[TOTAL_CP];
 
 HX711 scale;
 //----------------------SETUP FOR HX711--------------------------
-bool __INIT_FLAG = false ;
+uint16_t _fps_counter = 0;
+
+//--------------------------------------------------------------
 
 void setup() {
   Serial.begin(115200);
@@ -94,120 +95,161 @@ void setup() {
   pinMode(BUT_DOWN_PIN, INPUT_PULLUP);
   pinMode(BUT_FUNCTION_PIN, INPUT_PULLUP); 
   //DATA FROM EEPROM
-  CHECK_INIT_VALUE();
-  GET_EEPROM_DATA();
+  //check_setup_value();
+  //GET_EEPROM_DATA();
 }
 
 void loop() {
   switch(PAGE) {
     case PAGE_MEASURING_LOADCELL:
-      FUNCTION_MEASURING_LOADCELL();
+      loadcell_measuring();
       break;
-    
-
+  
     case PAGE_CONFIG_CALIB_POINT_VALUE:
-      FUNCTION_CONFIG_CALIB_POINT_VALUE();
+      config_value_calib_point();
       break;   
+
   }
 }
 //-----------------INTERRUPT PER 1MS-----------------
 void INTERRUPT() {
-  static uint16_t _fps_counter = 0;
   _fps_counter++;
-  CHECK_CONNECT_HX711();
-  CHECK_BUTTON_STATE();
-  if((_fps_counter % 20) == 0) DISPLAY_LED();
+  check_button_action();
+  if((_fps_counter % FPS_rate) == 0) {
+    //Serial.println("DISPLAY_DONE");
+    DISPLAY_LED();
+  }
 }
 
 //--------------------MENU PAGE-----------------------
-void FUNCTION_MEASURING_LOADCELL() {
-  while(BUT_PRESSED != BUTTON_FUNCTION) {
-    DISPLAY_UPDATE("number", CALC_INPUT_DATA(scale.read()));
-  }
+void loadcell_measuring() {
+  //uint16_t _measure_value = CALC_INPUT_DATA(scale.read());
+  static uint8_t abc = 0;
+  DISPLAY_UPDATE("number", abc);
+  Serial.println(abc);
+  delay(1);
   //NAVIGATION
-  switch(STATE) {
-    case FUNC_CLICKED:
-      break;
-    case FUNC_HOLD:
-      DISPLAY_UPDATE("string","func");
-      PAGE = PAGE_CONFIG_CALIB_POINT_VALUE;
-      break;
-  }
-}
-
-void FUNCTION_CONFIG_CALIB_POINT_VALUE() {
-  static uint8_t _CP_position =0;
-  while(BUT_PRESSED != BUTTON_FUNCTION) {
-    DISPLAY_UPDATE("n=", _CP_position);
-    switch(STATE){
-      case UP_CLICKED:
-        _CP_position++;
-        if (_CP_position >= TOTAL_CP) _CP_position = TOTAL_CP;
+  if (BUTTON == BUTTON_FUNCTION) {
+    switch(STATE) {
+      case CLICKED:
+        abc++;
         break;
-      case DOWN_CLICKED:
-        _CP_position--;
-        if (_CP_position <=0 ) _CP_position = 0;
+      case PRESSED:
+        DISPLAY_UPDATE("string","func");
+        delay(2000);
+        PAGE = PAGE_CONFIG_CALIB_POINT_VALUE;
         break;
     }
   }
-  //NAVIGATION
-  switch(STATE) {
-    case FUNC_CLICKED:
-      CONFIGURATION_CP_VALUE(_CP_position); 
-      break;
-    case FUNC_HOLD:
-      if(__INIT_FLAG == true) {       //INITIAL VALUE has been configured
-        DISPLAY_UPDATE("string", "base");
-        PAGE = PAGE_MEASURING_LOADCELL;
-      }
-      else if (__INIT_FLAG == false) {      //INITIAL VALUE hasn't been configured
-        DISPLAY_UPDATE("string", "----");
-      }  
-      break;
-  }
 }
 
-void CONFIGURATION_CP_VALUE(uint8_t _CP_position) {
-  int16_t _temp_CP_value = CP_value_arr[_CP_position];
-  while(BUT_PRESSED != BUTTON_FUNCTION) {
+void config_value_calib_point() {
+  static uint8_t _CP_position =0;
+  DISPLAY_UPDATE("n=", _CP_position);
+  delay(1);
+  //NAVIGATION
+  switch(BUTTON) {
+    case BUTTON_DOWN: 
+      switch(STATE) {
+        case CLICKED:
+          _CP_position--;
+          break;
+      }
+      break;
+    case BUTTON_UP: 
+      switch(STATE) {
+        case CLICKED:
+          _CP_position++;
+          break;
+      }
+      break;
+    case BUTTON_FUNCTION: 
+      switch (STATE) {
+        case CLICKED:
+          configuartion_action(_CP_position);
+          break;
+        case PRESSED:
+          DISPLAY_UPDATE("string", "base");
+          delay(2000);
+          PAGE = PAGE_MEASURING_LOADCELL;
+          break;
+      }
+    break;
+  }
+  if (_CP_position <= 0) _CP_position = 0;
+  else if (_CP_position >= TOTAL_CP) _CP_position = TOTAL_CP - 1;
+}
+
+void configuartion_action(uint8_t _CP_position) {
+  delay(100);
+  static int16_t _temp_CP_value = CP_value_arr[_CP_position];
+  uint8_t _done = 0;
+  while(_done == 0){
     if (_temp_CP_value == -1) DISPLAY_UPDATE("string", "null");
     else DISPLAY_UPDATE("number", _temp_CP_value);
-    switch(STATE) {
-      case UP_CLICKED:
-        _temp_CP_value++;
-        break;
-      case UP_HOLDx1:
-        _temp_CP_value+= 2;
-        break;
-      case UP_HOLDx2:
-        _temp_CP_value+=10;
-        break;
-      case UP_HOLDx3:
-        _temp_CP_value+=50;
-        break;
-      case DOWN_CLICKED:
-        _temp_CP_value--;
-        break;
-      case DOWN_HOLDx1:
-        _temp_CP_value-= 2;
-        break;
-      case DOWN_HOLDx2:
-        _temp_CP_value-= 10;
-        break;
-      case DOWN_HOLDx3:
-        _temp_CP_value-= 50;
-        break;
+    delay(1);
+    switch (BUTTON) {
+    //COUNT UP
+    case BUTTON_UP: 
+      switch(STATE) {
+        case CLICKED:
+          _temp_CP_value++;
+          break;
+        case PRESSED:
+          _temp_CP_value+=2;
+          delay(20);
+          break;
+        case LONG_PRESSED:
+          _temp_CP_value+=5;
+          delay(30);
+          break;
+        case DOUBLE_LONG_PRESSED:
+          _temp_CP_value+=50;
+          delay(30);
+          break;
+      }
+      //check for maxx value
+      if(_temp_CP_value >= 9999) _temp_CP_value = 9999;
+      break;
+    //COUNT_DOWN
+    case BUTTON_DOWN:
+      switch(STATE) {
+        case CLICKED:
+          _temp_CP_value--;
+          delay(30);
+          break;
+        case PRESSED:
+          _temp_CP_value-=2;
+          delay(30);
+          break;
+        case LONG_PRESSED:
+          _temp_CP_value-=5;
+          delay(30);
+          break;
+        case DOUBLE_LONG_PRESSED:
+          _temp_CP_value-=50;
+          delay(30);
+          break;
+      }
+      //check for min value
+      if (_temp_CP_value <= -1) _temp_CP_value = -1;
+     break;
+    //VERIFY or HOME
+    case BUTTON_FUNCTION:
+      switch (STATE) {
+        case CLICKED:
+          VERIFY_NEW_CALIB_UPDATE(_CP_position, _temp_CP_value);
+          _done = 1;
+          break;
+        case PRESSED:
+          _done = 1;
+          break;
+      }
+      break;
     }
-    if(_temp_CP_value >= 9999) _temp_CP_value = 9999;
-    else if(_temp_CP_value <= -1) _temp_CP_value = -1;
-  }
-  switch(STATE) {
-    case FUNC_CLICKED:
-      VERIFY_NEW_CALIB_UPDATE(_CP_position,_temp_CP_value);
-      break;
-    case FUNC_HOLD:
-      break;
-  }
+    if (_temp_CP_value >= 9999) _temp_CP_value = 9999;
+    else if (_temp_CP_value <= -1) _temp_CP_value = -1;
+  } 
 }
 
 void VERIFY_NEW_CALIB_UPDATE(uint8_t _CP_position,int16_t _temp_CP_value) {
@@ -216,104 +258,86 @@ void VERIFY_NEW_CALIB_UPDATE(uint8_t _CP_position,int16_t _temp_CP_value) {
   if (_temp_check != _temp_CP_value) {    //NEW VALUE VERIFIED
     CP_value_arr[_CP_position] = _temp_CP_value;
     CP_hx711_arr[_CP_position] = scale.read_average(10);
-    EEPROM.put(EEPROM_BEGIN_CP_VALUE + _CP_position * EEPROM_CP_VALUE_SIZE, CP_value_arr[_CP_position]);
-    EEPROM.put(EEPROM_BEGIN_CP_HX711 + _CP_position * EEPROM_CP_HX711_SIZE, CP_hx711_arr[_CP_position]);
+    //EEPROM.put(EEPROM_BEGIN_CP_VALUE + _CP_position * EEPROM_CP_VALUE_SIZE, CP_value_arr[_CP_position]);
+    //EEPROM.put(EEPROM_BEGIN_CP_HX711 + _CP_position * EEPROM_CP_HX711_SIZE, CP_hx711_arr[_CP_position]);
     DISPLAY_UPDATE("string", "done");
+    delay(2000);
   }
 }
 
 //---------------------CHECK BUTTON EVENT FUNCTION-----------------------
-void CHECK_BUTTON_STATE() {
-  static uint16_t _counter =0;
-  if ((digitalRead(BUT_DOWN_PIN) == 0) || (digitalRead(BUT_FUNCTION_PIN) == 0) || (digitalRead(BUT_UP_PIN) == 0)) {
+// void button_action_page_1() {
+//   static uint32_t _counter =0;
+//   if (digitalRead(BUT_FUNCTION_PIN)== 0) {
+//     _counter++;
+//     BUTTON = BUTTON_FUNCTION;
+//     if ((_counter >= pressed_drt)) {
+//       // Serial.println("button func pressed");
+//       STATE = PRESSED;
+//     } 
+//   }
+//   else {
+//     if ((_counter >= clicked_drt) && (_counter < pressed_drt)) {
+//       // Serial.println("button func clicked");
+//       STATE = CLICKED;
+//       _counter =0;
+//     }
+//     else {
+//       STATE = RELEASED;
+//       BUTTON = BUTTON_RELEASED;
+//       _counter = 0;
+//     }
+//   }
+// }
+
+void check_button_action() {
+  static uint32_t _counter = 0;
+  if(digitalRead(BUT_UP_PIN) == 0) {
     _counter++;
-    BUT_PRESSED = CHECK_BUT_WHICH_PRESSED();
+    BUTTON = BUTTON_UP;
+    if ((_counter >= pressed_drt) && (_counter < long_pressed_drt)) {
+      STATE = PRESSED;
+    }
+    else if ((_counter >= long_pressed_drt) && (_counter < double_long_pressed_drt)) {
+      STATE = LONG_PRESSED;
+    }
+    else if ((_counter >= double_long_pressed_drt)) {
+      STATE = DOUBLE_LONG_PRESSED;
+    }
   }
+
+  else if(digitalRead(BUT_DOWN_PIN) == 0) {
+    _counter++;
+    BUTTON = BUTTON_DOWN;
+    if ((_counter >= pressed_drt) && (_counter < long_pressed_drt)) {
+      STATE = PRESSED;
+    }
+    else if ((_counter >= long_pressed_drt) && (_counter < double_long_pressed_drt)) {
+      STATE = LONG_PRESSED;
+    }
+    else if ((_counter >= double_long_pressed_drt)) {
+      STATE = DOUBLE_LONG_PRESSED;
+    }
+  }
+
+  else if(digitalRead(BUT_FUNCTION_PIN) == 0) {
+    _counter++;
+    BUTTON = BUTTON_FUNCTION;
+    if ( _counter >= pressed_drt) STATE = PRESSED;
+  }
+
   else {
-    if ((_counter > 0) && (_counter <= CLICKED)) {
-      STATE = CHECK_BUT_CLICKED();
+    if (_counter > 0 ) {
+      STATE = CLICKED;
+      _counter =0;
     }
-    else if (_counter == 0) {
-      STATE = RELEASE;
-    }
-    _counter = 0;
-    BUT_PRESSED == BUTTON_RELEASED;    
-  }
-  // if button still being pressed
-  if (_counter >= LONG_PRESS) {
-    STATE = CHECK_BUT_LONG_PRESS();
-    //LONG_PRESS
-    if (_counter >= DOUBLE_LONG_PRESS) {
-      STATE = CHECK_BUT_DOUBLE_LONG_PRESS();
-      //LONGER PRESSED
-      if (_counter >= TRIPPLE_LONG_PRESS) {
-        STATE = CHECK_BUT_TRIPPLE_LONG_PRESS();
-      }
+    else {
+      STATE = RELEASED;
+      BUTTON = BUTTON_RELEASED;
     }
   }
 }
 
-uint8_t CHECK_BUT_WHICH_PRESSED() {
-  if (digitalRead(BUT_DOWN_PIN) == 0) {
-    return BUTTON_DOWN;
-  }
-  if (digitalRead(BUT_FUNCTION_PIN) == 0) {
-    return BUTTON_FUNCTION;
-  }
-  if (digitalRead(BUT_UP_PIN) == 0) {
-    return BUTTON_UP;
-  }
-}
-
-uint8_t CHECK_BUT_CLICKED() {
-  switch(BUT_PRESSED) {
-    case BUTTON_DOWN:
-      return DOWN_CLICKED;
-      break;
-    case BUTTON_UP:
-      return UP_CLICKED;
-      break;
-    case BUTTON_FUNCTION:
-      return FUNC_CLICKED;
-      break;
-  }  
-}
-
-uint8_t CHECK_BUT_LONG_PRESS() {
-  switch(BUT_PRESSED) {
-    case BUTTON_FUNCTION:
-      return FUNC_HOLD;
-      break;
-    case BUTTON_UP:
-      return UP_HOLDx1;
-      break;
-    case BUTTON_DOWN:
-      return DOWN_HOLDx1;
-      break;
-  }
-}
-
-uint8_t CHECK_BUT_DOUBLE_LONG_PRESS() {
-  switch(BUT_PRESSED) {
-    case BUTTON_UP:
-      return UP_HOLDx2;
-      break;
-    case BUTTON_DOWN:
-      return DOWN_HOLDx2;
-      break;
-  }
-}
-
-uint8_t CHECK_BUT_TRIPPLE_LONG_PRESS() {
-  switch(BUT_PRESSED) {
-    case BUTTON_UP:
-      return UP_HOLDx3;
-      break;
-    case BUTTON_DOWN:
-      return DOWN_HOLDx3;
-      break;
-  } 
-}
 //-------------------------DISPLAY_LED7SEG---------------------------
 void DISPLAY_UPDATE(char str[], char value_to_display[]) {
   uint16_t _temp = value_to_display;
@@ -334,12 +358,13 @@ void DISPLAY_UPDATE(char str[], char value_to_display[]) {
     display7seg_arr[0] = STRING_CODE(str[0]);
     display7seg_arr[1] = STRING_CODE(str[1]);
     display7seg_arr[2] = 0xFF;
-    if ( CP_value_arr[_temp] != -1) display7seg_arr[3] = LED_NUMBER_CODE[_temp] & led_dot;
-    else  display7seg_arr[3] = LED_NUMBER_CODE[_temp];  
+    if( CP_value_arr[_temp] != -1)  display7seg_arr[3] = LED_NUMBER_CODE[_temp] & led_dot; 
+    else if ( CP_value_arr[_temp] == -1) display7seg_arr[3] = LED_NUMBER_CODE[_temp];
   }
 }
 
 void DISPLAY_LED() {
+  for (uint8_t _index = 0; _index < 20; _index++){
     for (uint8_t _position =0; _position < 4; _position++) {
       switch(_position){
         case 0: { 
@@ -371,6 +396,7 @@ void DISPLAY_LED() {
         } break;
       }
     }
+  }
 }
 
 char STRING_CODE(char alphabet) {
@@ -497,26 +523,30 @@ void GET_EEPROM_DATA() {
     EEPROM.get(EEPROM_BEGIN_CP_HX711 + _index * EEPROM_CP_HX711_SIZE, CP_hx711_arr[_index]);
   }
 }
-
-
 //--------------------INIT VALUE----------------------
-void CHECK_INIT_VALUE() {
-  while(CHECK_CALIB_SETUP_DATA() == FAILED) {
-    FUNCTION_CONFIG_CALIB_POINT_VALUE();
+void check_setup_value() {
+  uint8_t _run_default =0;
+  uint8_t _count_null = 0;
+  for (uint8_t _index =0; _index < TOTAL_CP;_index++) {
+    if(EEPROM.read(_index * EEPROM_CP_VALUE_SIZE) != -1) _count_null++;
   }
-  __INIT_FLAG = true;
+  if(_count_null >0) _run_default = 1;
+  else _run_default = 0;
+  get_data(_run_default);
 }
 
-uint8_t CHECK_CALIB_SETUP_DATA() {
-  uint8_t _counter_check =0;
-  for(uint8_t _index =0; _index < TOTAL_CP; _index++) {
-    if (EEPROM.read(EEPROM_BEGIN_CP_VALUE + _index *EEPROM_CP_VALUE_SIZE) != 0xFF) {
-      _counter_check++;
+void get_data(uint8_t _run_default) {
+  if (_run_default == 1) {
+    for (uint8_t _index =0; _index < TOTAL_CP; _index++) {
+      CP_value_arr[_index] = default_CP_value_arr[_index];
+      CP_hx711_arr[_index] = default_CP_hx711_arr[_index];
     }
-    if (_counter_check < 2) {
-      return FAILED;
-    }
-    else return COMPLETED;
+  }
+  else if (_run_default == 0) {
+    for (uint8_t _index =0; _index < TOTAL_CP; _index++) {
+      EEPROM.get(EEPROM_BEGIN_CP_VALUE + _index * EEPROM_CP_VALUE_SIZE, CP_value_arr[_index]);
+      EEPROM.get(EEPROM_BEGIN_CP_HX711 + _index * EEPROM_CP_HX711_SIZE, CP_hx711_arr[_index]);
+    }    
   }
 }
 
