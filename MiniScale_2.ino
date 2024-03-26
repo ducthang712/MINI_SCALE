@@ -23,13 +23,15 @@
 #define   COMPLETED    1
 #define   FAILED       0
 
-#define   FPS_rate   10
-
+//FPS 
+#define   FPS_rate   9
+#define   led7seg_speed_scan   40
+#define   delay_name_page_onscreen    700   //*2 ms
 //BUTTON DURATION
-#define   clicked_drt                5
-#define   pressed_drt               1000
-#define   long_pressed_drt          3000
-#define   double_long_pressed_drt   6000
+#define   clicked_drt                3
+#define   pressed_drt               700
+#define   long_pressed_drt          2400
+#define   double_long_pressed_drt   4000
 
 //EEPROM DATABASE
 #define  EEPROM_CP_VALUE_SIZE      2      //int16_t 
@@ -75,9 +77,8 @@ long CP_hx711_arr[TOTAL_CP];
 
 int16_t temp_CP_value_arr[TOTAL_CP];
 long temp_CP_hx711_arr[TOTAL_CP];
-
-HX711 scale;
 //----------------------SETUP FOR HX711--------------------------
+HX711 scale;
 uint16_t fps_counter = 0;
 //--------------------------------------------------------------
 
@@ -142,7 +143,7 @@ void loadcell_measuring() {
       case PRESSED:
         if (MODE != DEFAULT_VALUE) {
           DISPLAY_UPDATE("string","func");
-          delay(2000);
+          delay(delay_name_page_onscreen);
           PAGE = PAGE_CONFIG_CALIB_POINT_VALUE;
         }
         break;
@@ -152,7 +153,7 @@ void loadcell_measuring() {
     switch(STATE) {
       case PRESSED:
         DISPLAY_UPDATE("string","defa");
-        delay(2000);
+        delay(delay_name_page_onscreen);
         MODE = DEFAULT_VALUE;
         break;
     }
@@ -161,7 +162,7 @@ void loadcell_measuring() {
     switch(STATE) {
       case PRESSED:
         DISPLAY_UPDATE("string","eepr");
-        delay(2000);
+        delay(delay_name_page_onscreen);
         MODE = EEPROM_VALUE;
         break;
     }
@@ -195,7 +196,7 @@ void config_value_calib_point() {
           break;
         case PRESSED:
           DISPLAY_UPDATE("string", "base");
-          delay(2000);
+          delay(delay_name_page_onscreen);
           PAGE = PAGE_MEASURING_LOADCELL;
           break;
       }
@@ -221,14 +222,14 @@ void configuartion_action(uint8_t _CP_position) {
           break;
         case PRESSED:
           _temp_CP_value+=2;
-          delay(20);
+          delay(30);
           break;
         case LONG_PRESSED:
-          _temp_CP_value+=5;
+          _temp_CP_value+=9;
           delay(30);
           break;
         case DOUBLE_LONG_PRESSED:
-          _temp_CP_value+=50;
+          _temp_CP_value+=99;
           delay(30);
           break;
       }
@@ -240,18 +241,17 @@ void configuartion_action(uint8_t _CP_position) {
       switch(STATE) {
         case CLICKED:
           _temp_CP_value--;
-          delay(30);
           break;
         case PRESSED:
           _temp_CP_value-=2;
           delay(30);
           break;
         case LONG_PRESSED:
-          _temp_CP_value-=5;
+          _temp_CP_value-=9;
           delay(30);
           break;
         case DOUBLE_LONG_PRESSED:
-          _temp_CP_value-=50;
+          _temp_CP_value-=99;
           delay(30);
           break;
       }
@@ -262,13 +262,15 @@ void configuartion_action(uint8_t _CP_position) {
     case BUTTON_FUNCTION:
       switch (STATE) {
         case CLICKED:
+          DISPLAY_UPDATE("string", "----");
+          delay(500);
           VERIFY_NEW_CALIB_UPDATE(_CP_position, _temp_CP_value);
           Serial.println("here");
           _done = 1;
           break;
         case PRESSED:
           DISPLAY_UPDATE("string", "----");
-          delay(1000);
+          delay(500);
           _done = 1;
           break;
       }
@@ -289,7 +291,7 @@ void VERIFY_NEW_CALIB_UPDATE(uint8_t _CP_position,int16_t _temp_CP_value) {
     EEPROM.put(EEPROM_BEGIN_CP_VALUE + _CP_position * EEPROM_CP_VALUE_SIZE, _temp_CP_value);
     EEPROM.put(EEPROM_BEGIN_CP_HX711 + _CP_position * EEPROM_CP_HX711_SIZE, CP_hx711_arr[_CP_position]);
     DISPLAY_UPDATE("string", "done");
-    delay(2000);
+    delay(1000);
   }
 }
 
@@ -368,7 +370,7 @@ void DISPLAY_UPDATE(char str[], char value_to_display[]) {
 }
 
 void DISPLAY_LED() {
-  for (uint8_t _index = 0; _index < 20; _index++){
+  for (uint8_t _index = 0; _index < led7seg_speed_scan; _index++){
     for (uint8_t _position =0; _position < 4; _position++) {
       switch(_position){
         case 0: { 
